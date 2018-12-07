@@ -191,4 +191,96 @@ object Solutions {
       }).map(_._2).min
     }
   }
+
+  object day06 {
+    val testInput = Util.inputFromString(
+      """1, 1
+        |1, 6
+        |8, 3
+        |3, 4
+        |5, 5
+        |8, 9""".stripMargin)
+
+    private case class Coord(x: Int, y: Int)
+
+    private trait Distance {
+      def id: Int
+      def len: Int
+    }
+
+    private case class UniqueDistance(id: Int, len: Int) extends Distance {
+      override def toString = (id + (if (len == 0) 65 else 97)).toChar.toString
+    }
+
+    private case object UndefinedDistance extends Distance {
+      val id = -1
+      val len = Int.MaxValue
+      override def toString = "_"
+    }
+
+    private case class SharedDistance(len: Int) extends Distance {
+      val id = -2
+      override def toString = "."
+    }
+
+    import reflect.ClassTag
+
+    private def parseInput[T: ClassTag](in: Input, fill: T): (List[Coord], Int, Int, Int, Int, Array[Array[T]]) = {
+      val cc = in.map { l =>
+        val Array(x, y) = l.split(", ")
+        Coord(x.toInt, y.toInt)
+      }.toList
+      val l = cc.map(_.x).min
+      val t = cc.map(_.y).min
+      val r = cc.map(_.x).max + 1
+      val b = cc.map(_.y).max + 1
+      val matrix = Array.fill[T](b - t, r - l)(fill)
+      (cc.map(c => Coord(c.x - l, c.y - t)),
+        l, t, r, b, matrix)
+    }
+
+    def puzzel1(in: Input): Int = {
+      var (cc, l, t, r, b, matrix) = parseInput[Distance](in, UndefinedDistance)
+
+      for {
+        (c, id) <- cc.zipWithIndex
+        x <- 0 until r - l
+        y <- 0 until b - t
+      } {
+        val len = math.abs(x - c.x) + math.abs(y - c.y)
+        val current = matrix(y)(x)
+        matrix(y)(x) =
+          if (current.len > len) UniqueDistance(id, len)
+          else if (current.len == len) SharedDistance(len)
+          else current
+      }
+
+      // println(matrix.map(_.mkString).mkString("\n"))
+
+      val infiniteIds = Seq(matrix.head,
+        matrix.last,
+        matrix.init.tail.flatMap(row => Seq(row.head, row.last)))
+          .flatten
+          .map(_.id)
+          .toSet
+
+      matrix.flatten.collect({
+        case UniqueDistance(id, _) if !infiniteIds.contains(id) => id
+      }).groupBy(identity).values.map(_.size).max
+    }
+
+    def puzzel2(in: Input): Int = {
+      var (cc, l, t, r, b, matrix) = parseInput[Boolean](in, false)
+
+      for {
+        x <- 0 until r - l
+        y <- 0 until b - t
+      } {
+        if (cc.map(c => math.abs(x - c.x) + math.abs(y - c.y)).sum < 10000)
+          matrix(y)(x) = true
+      }
+
+      matrix.flatten.filter(identity).size
+    }
+  }
 }
