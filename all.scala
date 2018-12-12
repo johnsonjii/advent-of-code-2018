@@ -1,10 +1,31 @@
 object Util {
+  import concurrent.duration._
+  import java.util.concurrent.TimeUnit
+
   type Input = Seq[String]
 
   def inputFromFile(name: String): Input =
     io.Source.fromFile(name).getLines.toSeq
 
   def inputFromString(str: String): Input = str.lines.toSeq
+
+  def time[T](f: => T): T = {
+    val start = System.currentTimeMillis
+    val r = f
+    val dur = (System.currentTimeMillis - start).milliseconds
+    println(formatDuration(dur))
+    println()
+    r
+  }
+
+  private def formatDuration(in: Duration): String = {
+    val List(day, hour, minute, second, millisecond, _*) = TimeUnit.values.foldRight((Seq[Long](), in))((u, res) => {
+      val (s, dur) = res
+      val p = dur.toUnit(u).toLong
+      (s :+ p, dur - u.toNanos(p).nanos)
+    })._1
+    f"$day day${if (day != 1) "s" else ""} $hour%02d:$minute%02d:$second%02d.$millisecond%03d"
+  }
 }
 
 object Solutions {
@@ -281,6 +302,249 @@ object Solutions {
       }
 
       matrix.flatten.filter(identity).size
+    }
+  }
+
+  object day07 {
+
+    import collection.mutable
+
+    case class Line(step: Char, pred: Char)
+    private def toLine(l: String) = Line(l(36), l(5))
+    private def time(c: Char, ctime: Int) = ctime + c.toInt - 64
+
+    class Timer(var current: Int) {
+      def -- : Int = {
+        current = (current - 1) max 0
+        current
+      }
+
+      def ++ : Int = {
+        current = current + 1
+        current
+      }
+
+      def atZero: Boolean = current == 0
+
+      override def toString = current.toString
+    }
+    object Timer {
+      def apply(c: Char, ctime: Int): Timer = new Timer(ctime + c.toInt - 64)
+    }
+    
+    def puzzel1(in: Input): String = {
+
+      val steps = mutable.HashMap.empty[Char, mutable.HashSet[Char]]
+      in.map(toLine).foreach { l =>
+        steps.getOrElseUpdate(l.pred, mutable.HashSet.empty[Char])
+        steps.getOrElseUpdate(l.step, mutable.HashSet.empty[Char]).add(l.pred)
+      }
+
+      var order = List.empty[Char]
+      while(steps.nonEmpty) {
+        val next = (for ((s, pp) <- steps if pp.isEmpty) yield s).toSeq.sorted.head
+        order = order :+ next
+        steps.remove(next)
+        for (k <- steps.keySet) steps(k).remove(next)
+      }
+
+      order.mkString
+    }
+
+    def puzzel2(in: Input, ctime: Int, nWorkers: Int): Int = {
+
+      val steps = mutable.HashMap.empty[Char, (mutable.HashSet[Char], Timer)]
+      in.map(toLine).foreach { l =>
+        steps.getOrElseUpdate(l.pred, (mutable.HashSet.empty[Char], Timer(l.pred, ctime)))
+        steps.getOrElseUpdate(l.step, (mutable.HashSet.empty[Char], Timer(l.step, ctime)))._1.add(l.pred)
+      }
+
+      var clock = new Timer(0)
+      val workers = Array.fill[Option[Char]](nWorkers)(None)
+
+      while (steps.nonEmpty) {
+        (for ((s, (pp, _)) <- steps if !workers.flatten.contains(s) && pp.isEmpty) yield s)
+          .toSeq.sorted.take(workers.count(_.isEmpty)).foreach { s =>
+            workers(workers.indexWhere(_.isEmpty, 0)) = Some(s)
+          }
+
+        workers.flatten.foreach(s => steps(s)._2.--)
+
+        steps.filter(_._2._2.atZero).foreach {
+          case (done, _) =>
+            steps.remove(done)
+            workers(workers.indexWhere(_.contains(done))) = None
+            for (k <- steps.keySet) steps(k)._1.remove(done)
+        }
+        
+        clock.++
+      }
+
+      clock.current
+    }
+  }
+
+  object day08 {
+
+    case class Node(meta: Seq[Int], children: Seq[Node]) {
+      def allMetadata: Seq[Int] = (meta +: children.map(_.allMetadata)).flatten
+      def value: Int = {
+        if (children.size == 0) meta.sum
+        else meta.map(_ - 1).foldLeft(0)((s, i) => {
+          if (i >= children.length) s
+          else s + children(i).value
+        })
+      }
+    }
+
+    def parseNode(data: Seq[Int]): (Int, Node) = {
+      val c = data.head.toInt
+      val m = data(1).toInt
+      val (pos, children) = 0.until(c).foldLeft((2, Seq[Node]()))((res, _) => {
+        val (pos, nodes) = res
+        val (taken, node) = parseNode(data.view(pos, data.length))
+        (pos + taken, nodes :+ node)
+      })
+      val metadata = for (i <- pos until pos + m) yield data(i).toInt
+      (pos + m, Node(metadata, children))
+    }
+
+    def puzzel1(in: Input): Int = parseNode(in.head.split(" ").map(_.toInt))._2.allMetadata.sum
+
+    def puzzel2(in: Input): Int = parseNode(in.head.split(" ").map(_.toInt))._2.value
+  }
+
+  object day09 {
+  
+    class Marble(val value: Int, var ccw: Marble = null, var cw: Marble = null)
+    object Marbles {
+      var current: Marble = _
+
+      def reset(): Unit = {
+        current = new Marble(0)
+        current.ccw = current
+        current.cw = current
+      }
+
+      def move(n: Int): Unit = {
+        if (n > 0) {
+          current = current.cw
+          move(n - 1)
+        } else if (n < 0) {
+          current = current.ccw
+          move(n + 1)
+        }
+      }
+
+      def add(value: Int): Unit = {
+        val added = new Marble(value, current, current.cw)
+        added.ccw.cw = added
+        added.cw.ccw = added
+        current = added
+      }
+
+      def removeCurrent: Int = {
+        val removed = current
+        current = removed.cw
+        removed.ccw.cw = removed.cw
+        removed.cw.ccw = removed.ccw
+        removed.value
+      }
+    }
+
+    def puzzel(players: Int, numOfMarbles: Int) = {
+      import collection.{mutable => m}
+
+      val scores = m.HashMap[Int, m.ArrayBuffer[Long]]()
+      var player = players
+
+      Marbles.reset()
+      for (v <- 1 to numOfMarbles) {
+        player = player + 1
+        if (player > players)
+          player = 1
+
+        if (v % 23 == 0) {
+          Marbles.move(-7)
+          val points = v + Marbles.removeCurrent
+          scores.getOrElseUpdate(player, m.ArrayBuffer[Long]()).append(points)
+        } else {
+          Marbles.move(1)
+          Marbles.add(v)
+        }
+      }
+      scores.values.map(_.sum).max
+    }
+  }
+
+  object day10 {
+
+    class Point(var x: Int, var y: Int, val xv: Int, val yv: Int) {
+      def fwd(): Unit = {
+        x = x + xv
+        y = y + yv
+      }
+
+      def bwd(): Unit = {
+        x = x - xv
+        y = y - yv
+      }
+    }
+
+    object Point {
+      private val p = "^position=<\\s*([^,]*),\\s*([^>]*)> velocity=<\\s*([^,]*),\\s*([^>]*)>$".r
+      def apply(s: String): Point = s match {
+        case p(x, y, xv, yv) => new Point(x.toInt, y.toInt, xv.toInt, yv.toInt)
+      }
+    }
+
+    def metrics(points: Seq[Point]): (Int, Int, Int, Int) = {
+      (points.minBy(_.x).x, points.minBy(_.y).y, points.maxBy(_.x).x, points.maxBy(_.y).y)
+    }
+
+    def area(points: Seq[Point]): Long = {
+      val (l, t, r, b) = metrics(points)
+      (r.toLong - l.toLong) * (b.toLong - t.toLong)
+    }
+
+    def showPoints(points: Seq[Point]): Unit = {
+      val (l, t, r, b) = metrics(points)
+      val grid = points.groupBy(_.y).mapValues(_.map(_.x).toSet)
+      for (y <- t to b) {
+        val row = grid.get(y)
+        for (x <- l to r) {
+          print(row.flatMap(_.find(_ == x).map(_ => "#")).getOrElse(" "))
+          if (points.exists(p => p.x == x && p.y == y)) "#" else " "
+        }
+        println()
+      }
+    }
+    
+    def puzzel1(in: Input): Unit = {
+      val points = in.map(Point.apply)
+      var a = area(points)
+      var cont = true
+      while (cont) {
+        points.foreach(_.fwd())
+        val a1 = area(points)
+        if (a1 > a) cont = false else a = a1
+      }
+      points.foreach(_.bwd())
+      showPoints(points)
+    }
+
+    def puzzel2(in: Input): Int = {
+      val points = in.map(Point.apply)
+      var a = area(points)
+      var cont = true
+      var i = 0
+      while (cont) {
+        i = i + 1
+        points.foreach(_.fwd())
+        val a1 = area(points)
+        if (a1 > a) cont = false else a = a1
+      }
+      i - 1
     }
   }
 }
