@@ -191,8 +191,48 @@ object Solutions {
       }
     }
 
-    def react(poly: Seq[Unit]): Int = {
-      var units: Seq[Unit] = poly
+    def react(poly: Seq[Unit]): Seq[Unit] = {
+      import collection.{mutable => m}
+
+      val units = m.HashMap(poly.zipWithIndex.map(_.swap):_*)
+      var continue = true
+
+      while (continue) {
+        val cur = units.toSeq.sortBy(_._1)
+
+        val toRemove = cur.sliding(2).filter({
+          case Seq((_, a), (_, b)) => a.t == b.t && a.positive != b.positive
+        }).toSeq
+
+        if (toRemove.isEmpty)
+          continue = false
+
+        val indexesToRemove =
+          (if (toRemove.size == 1) toRemove
+          else if (toRemove.size == 2) toRemove.take(1)
+          else toRemove.sliding(2).flatMap({
+            case Seq(x, y) =>
+              val Seq((_, _), (a, _)) = x
+              val Seq((b, _), (_, _)) = y
+              if (a == b) None
+              else Some(x)
+            })).toSeq.map({case Seq((a, _), (b, _)) => (a, b)}).toSeq
+
+        if (indexesToRemove.size < 2)
+          continue = false
+
+        indexesToRemove.foreach({
+          case (a, b) =>
+            units.remove(a)
+            units.remove(b)
+        })
+      }
+
+      react2(units.toSeq.sortBy(_._1).map(_._2))
+    }
+
+    private def react2(poly: Seq[Unit]): Seq[Unit] = {
+      var units = poly
       var continue = true
       while (continue) {
         units.sliding(2).zipWithIndex.find({case (Seq(a, b), _) => a.t == b.t && a.positive != b.positive}) match {
@@ -200,28 +240,20 @@ object Solutions {
           case None => continue = false
         }
       }
-      units.length
+      units
     }
 
-    def puzzel1(in: Input): Int = react(in.head.toSeq.map(Unit.apply))
+    def puzzel1(in: Input): Int = react(in.head.toSeq.map(Unit.apply)).length
 
     def puzzel2(in: Input) = {
-      val fullPoly: Seq[Unit] = in.head.toSeq.map(Unit.apply)
-      (for (u <- fullPoly.map(_.t).distinct) yield {
-        (u, react(fullPoly.filterNot(_.t == u)))
+      val poly: Seq[Unit] = react(in.head.toSeq.map(Unit.apply))
+      (for (u <- poly.map(_.t).distinct) yield {
+        (u, react(poly.filterNot(_.t == u)).length)
       }).map(_._2).min
     }
   }
 
   object day06 {
-    val testInput = Util.inputFromString(
-      """1, 1
-        |1, 6
-        |8, 3
-        |3, 4
-        |5, 5
-        |8, 9""".stripMargin)
-
     private case class Coord(x: Int, y: Int)
 
     private trait Distance {
